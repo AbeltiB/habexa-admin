@@ -23,17 +23,30 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(body || `${res.status} ${res.statusText}`)
+    const body = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(body?.error || `${res.status} ${res.statusText}`)
   }
   if (res.status === 204) return undefined as T
   return res.json()
 }
 
+async function upload<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${BASE}/admin${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(body?.error || `${res.status} ${res.statusText}`)
+  }
+  return res.json()
+}
+
 export const adminApi = {
   dashboard: {
-    stats: () => req<DashboardStats>('/dashboard/stats'),
-    recentUsers: () => req<RecentUser[]>('/dashboard/recent-users'),
+    stats: () => req<{ data: DashboardStats }>('/dashboard/stats').then((r) => r.data),
+    recentUsers: () => req<{ data: RecentUser[] }>('/dashboard/recent-users').then((r) => r.data),
   },
 
   modules: {
@@ -44,8 +57,8 @@ export const adminApi = {
     update: (id: string, data: Partial<ModuleFormData>) =>
       req<Module>(`/modules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) => req<void>(`/modules/${id}`, { method: 'DELETE' }),
-    publish: (id: string) => req<Module>(`/modules/${id}/publish`, { method: 'PUT' }),
-    unpublish: (id: string) => req<Module>(`/modules/${id}/unpublish`, { method: 'PUT' }),
+    publish: (id: string) => req<Module>(`/modules/${id}/publish`, { method: 'POST' }),
+    unpublish: (id: string) => req<Module>(`/modules/${id}/unpublish`, { method: 'POST' }),
   },
 
   prices: {
@@ -96,5 +109,43 @@ export const adminApi = {
         body: JSON.stringify(payload),
       }),
     history: () => req<PushBroadcast[]>('/push/history'),
+  },
+
+  upload: {
+    image: (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return upload<{ data: { url: string; fileId: string } }>('/upload/image', form)
+    },
+    thumbnail: (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return upload<{ data: { url: string; fileId: string } }>('/upload/thumbnail', form)
+    },
+    document: (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return upload<{ data: { url: string; fileId: string } }>('/upload/document', form)
+    },
+    videoToImageKit: (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return upload<{ data: { url: string; fileId: string; embedUrl: string } }>('/upload/video/imagekit', form)
+    },
+    videoToYouTube: (file: File, opts: { title: string; description?: string; visibility: 'public' | 'unlisted' | 'private' }) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('title', opts.title)
+      if (opts.description) form.append('description', opts.description)
+      form.append('visibility', opts.visibility)
+      return upload<{ data: { videoId: string; url: string; embedUrl: string; status: string } }>('/upload/video/youtube', form)
+    },
+    deleteFile: (fileId: string) =>
+      req<{ data: { success: boolean } }>('/upload/file', {
+        method: 'DELETE',
+        body: JSON.stringify({ fileId }),
+      }),
+    getAuthParams: () =>
+      req<{ data: { token: string; expire: number; signature: string; publicKey: string } }>('/upload/auth'),
   },
 }
